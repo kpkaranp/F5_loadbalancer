@@ -41,3 +41,37 @@ if response.status_code == 200:
         print("-" * 40)
 else:
     print(f"Failed to get traffic summary: {response.text}")
+
+-----------------------------------------------------------------------
+
+import requests
+import urllib3
+import os
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  # Disable SSL warnings
+
+# Set F5 credentials
+BIGIP_IP = os.getenv("F5_IP", "192.168.1.100")  # Replace with your F5 IP
+AUTH_TOKEN = os.getenv("F5_TOKEN", "YOUR_AUTH_TOKEN")  # Replace with your F5 auth token
+
+# API URL to fetch Virtual Servers
+url = f"https://{BIGIP_IP}/mgmt/tm/ltm/virtual?$filter=partition+ne+null"
+
+# Headers with authentication token
+headers = {
+    "X-F5-Auth-Token": AUTH_TOKEN,
+    "Content-Type": "application/json"
+}
+
+# Send API request
+response = requests.get(url, headers=headers, verify=False)
+
+# Check response
+if response.status_code == 200:
+    vips = response.json().get("items", [])
+    print("Virtual Servers across all partitions:")
+    for vip in vips:
+        print(f"Partition: {vip['partition']} | VIP Name: {vip['name']} | Destination: {vip['destination']}")
+else:
+    print(f"Failed to fetch virtual servers: {response.text}")
+
