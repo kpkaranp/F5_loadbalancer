@@ -75,3 +75,66 @@ if response.status_code == 200:
 else:
     print(f"Failed to fetch virtual servers: {response.text}")
 
+
+
+---------------------------------------------------------------------------------------
+
+
+import requests
+import pandas as pd
+
+# F5 Management IP and API token
+f5_mgmt_ip = "<F5_MGMT_IP>"
+token = "<YOUR_API_TOKEN>"
+
+# API URL to get virtual servers (VIP details)
+url = f"https://{f5_mgmt_ip}/mgmt/tm/ltm/virtual"
+
+# Set the headers for authentication
+headers = {
+    'X-F5-Auth-Token': token
+}
+
+# Make the GET request
+response = requests.get(url, headers=headers, verify=False)
+
+# Check if the request was successful
+if response.status_code == 200:
+    vip_data = response.json()
+
+    # List to hold processed data for Excel
+    processed_data = []
+
+    # Loop through the virtual servers and extract required details
+    for vip in vip_data['items']:
+        name = vip.get('name', 'N/A')
+        full_partition = vip.get('partition', 'N/A')  # Full path partition
+        destination = vip.get('destination', 'N/A')
+        description = vip.get('description', 'N/A')
+        status = 'enabled' if vip.get('enabled') else 'disabled'
+        
+        # Extract service port from the destination
+        port = destination.split(":")[1] if ":" in destination else "N/A"
+
+        # Add the processed data to the list
+        processed_data.append({
+            'Name': name,
+            'Status': status,
+            'Description': description,
+            'Service Port': port,
+            'Destination': destination,
+            'Partition': full_partition
+        })
+
+    # Create a pandas DataFrame from the processed data
+    df = pd.DataFrame(processed_data)
+
+    # Export the DataFrame to an Excel file
+    excel_file_path = "f5_vip_status.xlsx"
+    df.to_excel(excel_file_path, index=False)
+
+    print(f"Excel file has been created: {excel_file_path}")
+else:
+    print(f"Failed to retrieve data. Status code: {response.status_code}")
+
+
