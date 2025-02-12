@@ -1,0 +1,27 @@
+name: "List Terraform Versions"
+
+on:
+  workflow_dispatch:  # Manual trigger
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  list-terraform:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+      - run: pip install PyGithub
+
+      - name: List Terraform Versions
+        run: python scripts/list_terraform_versions.py repos.txt path/to/terraform.tf
+
+      - name: Upload Report as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-version-report
+          path: terraform_versions_report.txt
