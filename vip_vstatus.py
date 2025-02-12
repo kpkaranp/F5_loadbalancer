@@ -138,3 +138,13 @@ else:
     print(f"Failed to retrieve data. Status code: {response.status_code}")
 
 
+--------------------------------------------
+
+      - name: Create GitHub release and upload artifact
+        uses: softprops/action-gh-release@v1
+        with:
+          files: f5_vip_status.xlsx  # Path to the generated file
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
