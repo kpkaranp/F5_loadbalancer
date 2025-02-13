@@ -2,8 +2,8 @@ import os
 import re
 import sys
 import base64
-from github import Github
-from dotenv import load_dotenv
+from github import Github # PyGithub
+from dotenv import load_dotenv # python-dotenv
 from urllib.parse import urlparse
 
 def check_arguments():
