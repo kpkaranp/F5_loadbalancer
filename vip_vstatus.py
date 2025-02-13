@@ -148,3 +148,68 @@ else:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 
+---------------------------------------------------
+
+import requests
+import pandas as pd
+from datetime import datetime
+
+# F5 Management IP and credentials
+f5_mgmt_ip = 'your_f5_mgmt_ip'  # Replace with your F5 management IP
+username = 'your_username'       # Replace with your username
+password = 'your_password'       # Replace with your password
+
+# The URL to fetch data from the F5 API
+url = f"https://{f5_mgmt_ip}/mgmt/tm/ltm/virtual/status"
+
+# Disable SSL verification (Optional, only if you have an SSL certificate issue)
+# You can remove verify=False if you're using a valid SSL cert
+response = requests.get(url, auth=(username, password), verify=False)
+
+# Check if the request was successful
+if response.status_code == 200:
+    # Parse the JSON response
+    vip_data = response.json()
+
+    # Prepare a list to store extracted information
+    extracted_data = []
+
+    # Loop through each virtual server entry
+    for vip in vip_data.get('entries', {}).values():
+        nested_stats = vip.get('nestedStats', {}).get('entries', {})
+
+        # Extract values, using 'N/A' if a key is missing
+        name = nested_stats.get('tmName', {}).get('description', 'N/A')
+        destination = nested_stats.get('destination', {}).get('description', 'N/A')
+        description = nested_stats.get('status.statusReason', {}).get('description', 'N/A')
+        status = nested_stats.get('status.availabilityState', {}).get('description', 'N/A')
+        port = nested_stats.get('servicePort', {}).get('description', 'N/A')
+        full_partition = name.split('/')[1] if '/' in name else "N/A"
+
+        # Add to the list
+        extracted_data.append({
+            'Name': name,
+            'Status': status,
+            'Description': description,
+            'Service Port': port,
+            'Destination': destination,
+            'Partition': full_partition
+        })
+
+    # Convert the list to a pandas DataFrame
+    df = pd.DataFrame(extracted_data)
+
+    # Get current date and time for the file name
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    file_name = f"{f5_mgmt_ip}_{current_datetime}.xlsx"
+
+    # Save to Excel
+    df.to_excel(file_name, index=False)
+
+    print(f"Data saved successfully to {file_name}")
+
+else:
+    print(f"Failed to fetch data. Status code: {response.status_code}")
+
+
+
