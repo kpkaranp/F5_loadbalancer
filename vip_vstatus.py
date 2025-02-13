@@ -212,4 +212,67 @@ else:
     print(f"Failed to fetch data. Status code: {response.status_code}")
 
 
+----------------------------------------------------------------------------------
+
+# The URLs to fetch data from the F5 API
+status_url = f"https://{f5_mgmt_ip}/mgmt/tm/ltm/virtual/status"
+virtual_url = f"https://{f5_mgmt_ip}/mgmt/tm/ltm/virtual"
+
+# Disable SSL verification (Optional, only if you have an SSL certificate issue)
+# You can remove verify=False if you're using a valid SSL cert
+response_status = requests.get(status_url, auth=(username, password), verify=False)
+response_virtual = requests.get(virtual_url, auth=(username, password), verify=False)
+
+# Check if both requests were successful
+if response_status.status_code == 200 and response_virtual.status_code == 200:
+    # Parse the JSON responses
+    status_data = response_status.json()
+    virtual_data = response_virtual.json()
+
+    # Prepare a list to store extracted information
+    extracted_data = []
+
+    # Loop through each virtual server entry in the status data
+    for vip in status_data.get('entries', {}).values():
+        nested_stats = vip.get('nestedStats', {}).get('entries', {})
+
+        # Extract values from status data
+        name = nested_stats.get('tmName', {}).get('description', 'N/A')
+        destination = nested_stats.get('destination', {}).get('description', 'N/A')
+        description = nested_stats.get('status.statusReason', {}).get('description', 'N/A')
+        status = nested_stats.get('status.availabilityState', {}).get('description', 'N/A')
+        full_partition = name.split('/')[1] if '/' in name else "N/A"
+
+        # Trim the partition from the status name to match the virtual name
+        virtual_name = name.split('/')[-1]  # Get the part after the last '/'
+        
+        # Now, find the corresponding virtual server details in the virtual data (using virtual_name)
+        virtual_info = next((v for v in virtual_data.get('items', []) if v.get('name') == virtual_name), None)
+        port = virtual_info.get('servicePort', {}).get('description', 'N/A') if virtual_info else 'N/A'
+        
+        # Add to the list of extracted data
+        extracted_data.append({
+            'Name': name,
+            'Status': status,
+            'Status Description': description,
+            'Destination': destination,
+            'Partition': full_partition,
+            'Description': description,
+            'Service Port': port
+        })
+
+    # Convert the list to a pandas DataFrame
+    df = pd.DataFrame(extracted_data)
+
+    # Get current date and time for the file name
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    file_name = f"{f5_mgmt_ip}_{current_datetime}.xlsx"
+
+    # Save to Excel
+    df.to_excel(file_name, index=False)
+
+    print(f"Data saved successfully to {file_name}")
+
+else:
+    print(f"Failed to fetch data. Status code for status: {response_status.status_code}, virtual: {response_virtual.status_code}")
 
