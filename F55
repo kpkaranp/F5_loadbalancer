@@ -4,7 +4,6 @@ import sys
 import base64
 from github import Github
 
-GITHUB_ENTERPRISE_URL = "https://github.axa.com/api/v3"
 
 # Read arguments from system
 if len(sys.argv) < 5:
