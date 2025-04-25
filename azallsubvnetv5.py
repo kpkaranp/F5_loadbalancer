@@ -1,7 +1,7 @@
 import subprocess
 import json
 import re
-import pandas as pd
+# import pandas as pd
 from azure.identity import DefaultAzureCredential
 from azure.mgmt.network import NetworkManagementClient
 
@@ -66,27 +66,19 @@ def main():
 
                     for cidr in address_ranges:
                         all_data.append({
-                            "Hub Subscription ID": sub_id,
                             "Hub VNet Name": vnet_name,
-                            "Hub VNet Resource Group": vnet_rg,
-                            "Hub VNet Location": vnet.location,
-                            "Peering Name": peer.name,
                             "Peering State": peer.peering_state,
                             "Spoke Peer Subscription": peer_subscription_id,
                             "Spoke Peer Resource Group": peer_resource_group,
                             "Spoke Peer Name": peer_vnet_name,
-                            "Allow VNet Access": peer.allow_virtual_network_access,
-                            "Allow Forwarded Traffic": peer.allow_forwarded_traffic,
-                            "Allow Gateway Transit": peer.allow_gateway_transit,
                             "Peering IP Address Space": address_space_str,
-                            "Peering IP Address Range": cidr
                         })
-
-    # Save to Excel
+    
+    # Save to json
     if all_data:
-        df = pd.DataFrame(all_data)
-        df.to_excel("hub_vnet_peerings.xlsx", index=False)
-        print("Exported peerings to hub_vnet_peerings.xlsx")
+        with open("hub_vnet_peerings.json", "w") as f:
+            json.dump(all_data, f, indent=4)
+        print("Exported peerings to hub_vnet_peerings.json")
     else:
         print("No HUB VNets with peerings found.")
 
