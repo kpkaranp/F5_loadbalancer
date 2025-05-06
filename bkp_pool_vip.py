@@ -189,3 +189,205 @@ def vip_status(self):
     filename = f"{BIGIP_IP}_f5_summary_{timestamp}.xlsx"
     df.to_excel(filename, index=False)
     print(f"Excel file saved: {filename}")
+
+-----------------------------------------------------------------------------------------
+
+
+
+def vip_status(self):
+    BIGIP_IP = self.address
+    AUTH_TOKEN = self.token
+   
+    # Headers with authentication token
+    headers = {
+        "X-F5-Auth-Token": AUTH_TOKEN,
+        "Content-Type": "application/json"
+    }
+
+    # --- Fetch virtual server list ---
+    def get_virtuals():
+        url = f"https://{BIGIP_IP}/mgmt/tm/ltm/virtual"
+        r = requests.get(url, headers=headers, verify=False)
+        r.raise_for_status()
+        return r.json().get('items', [])
+  
+    # --- Fetch virtual server stats ---
+    def get_virtual_stats():
+        url = f"https://{BIGIP_IP}/mgmt/tm/ltm/virtual/stats"
+        r = requests.get(url, headers=headers, verify=False)
+        r.raise_for_status()
+        return r.json().get('entries', {})
+  
+    # --- Fetch all pools ---
+    def get_pools():
+        url = f"https://{BIGIP_IP}/mgmt/tm/ltm/pool"
+        r = requests.get(url, headers=headers, verify=False)
+        r.raise_for_status()
+        return r.json().get('items', [])
+  
+    # --- Fetch pool stats ---
+    def get_pool_stats():
+        url = f"https://{BIGIP_IP}/mgmt/tm/ltm/pool/stats"
+        r = requests.get(url, headers=headers, verify=False)
+        r.raise_for_status()
+        return r.json().get('entries', {})
+
+    # --- Fetch pool members ---
+    def get_pool_members(pool_full_path):
+        pool_uri = pool_full_path.replace('/', '~')
+        url = f"https://{BIGIP_IP}/mgmt/tm/ltm/pool/{pool_uri}/members"
+        r = requests.get(url, headers=headers, verify=False)
+        if r.status_code == 200:
+            return r.json().get('items', [])
+        return []
+
+    # --- Main Processing ---
+    virtuals = get_virtuals()
+    stats = get_virtual_stats()
+    pools = get_pools()
+    pool_stats = get_pool_stats()
+
+    # --- Build virtual server info map (name → details) ---
+    vs_info_map = {}
+    for stat in stats.values():
+        nested = stat.get('nestedStats', {}).get('entries', {})
+        name = nested.get('tmName', {}).get('description', '')
+        # Handle both partition/name and name formats
+        if '/' in name:
+            partition, vs_name = name.split('/', 1)
+            full_path = f"/{partition}/{vs_name}"
+        else:
+            vs_name = name
+            full_path = f"/Common/{name}"
+        
+        dest = nested.get('destination', {}).get('description', '')
+        status = nested.get('status.availabilityState', {}).get('description', '')
+        status_desc = nested.get('status.statusReason', {}).get('description', '')
+        port = dest.split(':')[-1] if ':' in dest else 'N/A'
+        
+        # Store with all possible name formats
+        vs_info_map[name] = {
+            'destination': dest,
+            'port': port,
+            'status': status,
+            'status_desc': status_desc
+        }
+        vs_info_map[vs_name] = vs_info_map[name]
+        vs_info_map[full_path] = vs_info_map[name]
+
+    # --- Build pool info map (name → details) ---
+    pool_info_map = {}
+    for stat in pool_stats.values():
+        nested = stat.get('nestedStats', {}).get('entries', {})
+        name = nested.get('tmName', {}).get('description', '')
+        # Handle both partition/name and name formats
+        if '/' in name:
+            partition, pool_name = name.split('/', 1)
+            full_path = f"/{partition}/{pool_name}"
+        else:
+            pool_name = name
+            full_path = f"/Common/{name}"
+        
+        status = nested.get('status.availabilityState', {}).get('description', '')
+        status_desc = nested.get('status.statusReason', {}).get('description', '')
+        active_members = nested.get('activeMemberCount', {}).get('value', 0)
+        total_members = nested.get('memberCount', {}).get('value', 0)
+        
+        # Store with all possible name formats
+        pool_info_map[name] = {
+            'status': status,
+            'status_desc': status_desc,
+            'active_members': active_members,
+            'total_members': total_members
+        }
+        pool_info_map[pool_name] = pool_info_map[name]
+        pool_info_map[full_path] = pool_info_map[name]
+
+    # Map virtual server name to its pool and description
+    vs_pool_map = {}
+    vs_desc_map = {}
+    for vs in virtuals:
+        full_path = vs['fullPath']  # e.g., /Common/vs_web
+        vs_name = vs['name']
+        pool = vs.get('pool', None)  # e.g., /Common/pool_web
+        
+        # Handle pool path
+        if pool:
+            if not pool.startswith('/'):
+                pool = f"/Common/{pool}"
+            vs_pool_map[vs_name] = pool
+            vs_pool_map[full_path] = pool
+        
+        desc = vs.get('description', '')
+        vs_desc_map[vs_name] = desc
+        vs_desc_map[full_path] = desc
+
+    # --- Collect all data ---
+    all_rows = []
+    for pool in pools:
+        pool_path = pool['fullPath']
+        if not pool_path.startswith('/'):
+            pool_path = f"/Common/{pool_path}"
+            
+        members = get_pool_members(pool_path)
+        
+        # Get pool stats - try all possible name formats
+        pool_info = (
+            pool_info_map.get(pool_path) or 
+            pool_info_map.get(pool['name']) or 
+            pool_info_map.get(f"/Common/{pool['name']}") or 
+            {}
+        )
+
+        # Find which VSs use this pool
+        linked_vs_names = [k for k, v in vs_pool_map.items() if v == pool_path]
+        if not linked_vs_names:
+            linked_vs_names = ['Unlinked']
+
+        for vs_name in linked_vs_names:
+            # Try all possible name formats for virtual server info
+            vs_info = (
+                vs_info_map.get(f"/Common/{vs_name}") or 
+                vs_info_map.get(vs_name) or 
+                vs_info_map.get(f"/{vs_name}") or 
+                {}
+            )
+            
+            row_base = {
+                'Virtual Server': vs_name,
+                'VS Description': vs_desc_map.get(vs_name, ''),
+                'Destination': vs_info.get('destination', ''),
+                'Service Port': vs_info.get('port', ''),
+                'VS Status': vs_info.get('status', ''),
+                'VS Status Reason': vs_info.get('status_desc', ''),
+                'Pool': pool_path,
+                'Pool Status': pool_info.get('status', ''),
+                'Pool Status Reason': pool_info.get('status_desc', ''),
+                'Active Members': pool_info.get('active_members', 0),
+                'Total Members': pool_info.get('total_members', 0)
+            }
+
+            if members:
+                for member in members:
+                    all_rows.append({
+                        **row_base,
+                        'Pool Member': member.get('name'),
+                        'Node IP': member.get('address', 'N/A'),
+                        'Member Status': member.get('state', 'unknown'),
+                        'Session': member.get('session', 'unknown')
+                    })
+            else:
+                all_rows.append({
+                    **row_base,
+                    'Pool Member': 'No Members',
+                    'Node IP': '-',
+                    'Member Status': '-',
+                    'Session': '-'
+                })
+
+    # --- Save to Excel ---
+    df = pd.DataFrame(all_rows)
+    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    filename = f"{BIGIP_IP}_f5_summary_{timestamp}.xlsx"
+    df.to_excel(filename, index=False)
+    print(f"Excel file saved: {filename}")
