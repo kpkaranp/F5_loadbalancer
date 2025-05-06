@@ -71,44 +71,43 @@ def vip_status(self):
     BIGIP_IP = self.address
     AUTH_TOKEN = self.token
    
-# Headers with authentication token
+    # Headers with authentication token
     headers = {
-    "X-F5-Auth-Token": AUTH_TOKEN,
-    "Content-Type": "application/json"
+        "X-F5-Auth-Token": AUTH_TOKEN,
+        "Content-Type": "application/json"
     }
 
-  # --- Fetch virtual server list ---
+    # --- Fetch virtual server list ---
     def get_virtuals():
         url = f"https://{BIGIP_IP}/mgmt/tm/ltm/virtual"
         r = requests.get(url, headers=headers, verify=False)
         r.raise_for_status()
         return r.json().get('items', [])
   
-  # --- Fetch virtual server stats ---
+    # --- Fetch virtual server stats ---
     def get_virtual_stats():
         url = f"https://{BIGIP_IP}/mgmt/tm/ltm/virtual/stats"
         r = requests.get(url, headers=headers, verify=False)
         r.raise_for_status()
         return r.json().get('entries', {})
   
-  # --- Fetch all pools ---
+    # --- Fetch all pools ---
     def get_pools():
         url = f"https://{BIGIP_IP}/mgmt/tm/ltm/pool"
         r = requests.get(url, headers=headers, verify=False)
         r.raise_for_status()
         return r.json().get('items', [])
   
-  # --- Fetch pool members ---
+    # --- Fetch pool members ---
     def get_pool_members(pool_full_path):
         pool_uri = pool_full_path.replace('/', '~')
         url = f"https://{BIGIP_IP}/mgmt/tm/ltm/pool/{pool_uri}/members"
-        r = requests.get(url, auth=auth, headers=headers, verify=False)
+        r = requests.get(url, headers=headers, verify=False)
         if r.status_code == 200:
             return r.json().get('items', [])
         return []
 
-# --- Main Processing ---
-def generate_summary_excel():
+    # --- Main Processing ---
     virtuals = get_virtuals()
     stats = get_virtual_stats()
     pools = get_pools()
@@ -190,4 +189,3 @@ def generate_summary_excel():
     filename = f"{BIGIP_IP}_f5_summary_{timestamp}.xlsx"
     df.to_excel(filename, index=False)
     print(f"Excel file saved: {filename}")
-generate_summary_excel()
