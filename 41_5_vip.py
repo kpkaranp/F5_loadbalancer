@@ -11,7 +11,10 @@ requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
 class F5Config:
     def __init__(self, f5_host, username, password):
-        self.F5_HOST = f5_host
+        if not f5_host.startswith('http'):
+            self.F5_HOST = f"https://{f5_host}"
+        else:
+            self.F5_HOST = f5_host
         self.USERNAME = username
         self.PASSWORD = password
         
