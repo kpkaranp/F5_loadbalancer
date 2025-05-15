@@ -46,7 +46,7 @@ class F5Config:
     """Client for interacting with F5 API."""
     
     def __init__(self, host, username, password, verify_ssl=False):
-        """Initialize F5 client with connection details."""
+        """Initialize F5 client with connection details and generate report."""
         # Ensure host has https:// prefix
         if not host.startswith('http'):
             self.F5_HOST = f"https://{host}"
@@ -61,7 +61,57 @@ class F5Config:
         self.session.auth = HTTPBasicAuth(self.USERNAME, self.PASSWORD)
         self.session.verify = verify_ssl
         self.session.headers.update({'Content-Type': 'application/json'})
-    
+
+        # Automatically generate report upon initialization
+        try:
+            logger.info("Fetching virtual server data...")
+            vs_data, summary_counts = process_virtual_servers(self)
+            
+            logger.info("Fetching pool data...")
+            pool_data = process_pools(self, summary_counts)
+            
+            logger.info("Fetching node data...")
+            node_data = process_nodes(self, summary_counts)
+            
+            # Generate report
+            logger.info("Generating report...")
+            report_data = generate_report(vs_data, pool_data, node_data)
+            
+            # Generate output filename prefix
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            f5_hostname = self.F5_HOST.replace("https://", "").replace("http://", "")
+            output_prefix = f"{f5_hostname}_{timestamp}_f5_report"
+            
+            # Generate Excel report
+            excel_filename = generate_excel_report(report_data, summary_counts, output_prefix)
+            logger.info(f"Report generated in: {os.path.abspath(os.path.dirname(excel_filename))}")
+            
+            # Print summary
+            print("\nSummary of F5 Components:")
+            print("-" * 50)
+            print("Virtual Servers:")
+            for status, count in summary_counts['virtual'].items():
+                print(f"  {status}: {count}")
+            
+            print("\nPools:")
+            for status, count in summary_counts['pool'].items():
+                print(f"  {status}: {count}")
+            
+            print("\nNodes:")
+            for status, count in summary_counts['node'].items():
+                print(f"  {status}: {count}")
+            
+            print(f"\nTotal virtual servers: {len(report_data)}")
+            print(f"Total pools with members: {sum(1 for item in report_data if item.get('active_members', 0) > 0)}")
+            print(f"Total pools: {len(pool_data)}")
+            print(f"Total nodes: {len(node_data)}")
+            
+        except Exception as e:
+            logger.error(f"Error generating report: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            raise
+
     def get_json(self, endpoint):
         """Get data from F5 API endpoint."""
         url = f"{self.F5_HOST}{endpoint}"
