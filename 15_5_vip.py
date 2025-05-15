@@ -8,7 +8,7 @@ This script fetches data from the following F5 endpoints:
 - /mgmt/tm/ltm/virtual/stats
 - /mgmt/tm/ltm/pool
 - /mgmt/tm/ltm/pool/stats
-- /mgmt/tm/ltm/pool/<name>/members
+- /mgmt/tm/ltm/pool/members
 - /mgmt/tm/ltm/node
 - /mgmt/tm/ltm/node/stats
 
@@ -269,39 +269,49 @@ def process_pools(f5_config, summary_counts):
         return {}
 
 def process_nodes(f5_config, summary_counts):
-    """Fetch and process node information."""
+    """Fetch and process node information using only static endpoint /mgmt/tm/ltm/node/stats."""
     try:
         nodes = f5_config.get_json('/mgmt/tm/ltm/node')
-        if not nodes:
-            logger.error("Failed to get node data")
+        nstats = f5_config.get_json('/mgmt/tm/ltm/node/stats')
+        if not nodes or not nstats:
+            logger.error("Failed to get node data or stats")
             return {}
         
         node_data = {}
+        # Build a map from fullPath (slash and tilde) to stats
+        stats_map = {}
+        for key, entry in nstats.get('entries', {}).items():
+            parts = key.split('/')
+            if len(parts) > 2:
+                path = parts[-2]  # ~partition~name
+                if path.startswith('~'):
+                    slash_path = '/' + path.replace('~', '/')
+                else:
+                    slash_path = path
+                stats_map[slash_path] = entry['nestedStats']['entries']
         
         for node in nodes.get('items', []):
             try:
                 name = node.get('name', '')
                 address = node.get('address', '')
                 partition = node.get('partition', '')
+                fullPath = node.get('fullPath', '')
                 
-                # Handle path for stats query
-                stats_path = f"{partition}~{name}"
-                
-                # Get stats for this node
-                node_stats = f5_config.get_json(f"/mgmt/tm/ltm/node/{stats_path}/stats")
-                if not node_stats:
-                    logger.warning(f"Could not get stats for node: {name}")
+                # Try to get stats by fullPath
+                stats = stats_map.get(fullPath, {})
+                if not stats:
+                    tilde_path = '~' + fullPath.strip('/').replace('/', '~')
+                    stats = stats_map.get(tilde_path, {})
+                if not stats:
+                    logger.warning(f"Could not get stats for node: {name} ({fullPath})")
                     continue
-                
-                node_key = list(node_stats['entries'].keys())[0]
-                stats = node_stats['entries'][node_key]['nestedStats']['entries']
                 
                 availability_state = stats.get('status.availabilityState', {}).get('description', 'N/A')
                 summary_counts["node"][availability_state] += 1
                 
                 node_data[address] = {
                     'name': name,
-                    'fullPath': node.get('fullPath', ''),
+                    'fullPath': fullPath,
                     'partition': partition,
                     'availabilityState': availability_state,
                     'enabledState': stats.get('status.enabledState', {}).get('description', 'N/A'),
