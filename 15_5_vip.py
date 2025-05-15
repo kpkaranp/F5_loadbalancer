@@ -8,7 +8,7 @@ This script fetches data from the following F5 endpoints:
 - /mgmt/tm/ltm/virtual/stats
 - /mgmt/tm/ltm/pool
 - /mgmt/tm/ltm/pool/stats
-- /mgmt/tm/ltm/pool/members
+- /mgmt/tm/ltm/pool/<name>/members
 - /mgmt/tm/ltm/node
 - /mgmt/tm/ltm/node/stats
 
@@ -116,8 +116,9 @@ def process_virtual_servers(f5_config):
     """Fetch and process virtual server information."""
     try:
         virtuals = f5_config.get_json('/mgmt/tm/ltm/virtual')
-        if not virtuals:
-            logger.error("Failed to get virtual server data")
+        vstats = f5_config.get_json('/mgmt/tm/ltm/virtual/stats')
+        if not virtuals or not vstats:
+            logger.error("Failed to get virtual server data or stats")
             return [], {"virtual": Counter(), "pool": Counter(), "node": Counter()}
         
         vs_data = []
@@ -127,25 +128,34 @@ def process_virtual_servers(f5_config):
             "node": Counter()
         }
         
+        # Build a map from fullPath (slash and tilde) to stats
+        stats_map = {}
+        for key, entry in vstats.get('entries', {}).items():
+            # key: https://localhost/mgmt/tm/ltm/virtual/~partition~name/stats
+            parts = key.split('/')
+            if len(parts) > 2:
+                path = parts[-2]  # ~partition~name
+                if path.startswith('~'):
+                    slash_path = '/' + path.replace('~', '/')
+                else:
+                    slash_path = path
+                stats_map[slash_path] = entry['nestedStats']['entries']
+        
         for virtual in virtuals.get('items', []):
             try:
                 name = virtual.get('name', '')
                 fullPath = virtual.get('fullPath', '')
                 partition = virtual.get('partition', '')
                 
-                # Handle path for stats query
-                stats_path = fullPath.replace('/', '~')
-                if stats_path.startswith('~'):
-                    stats_path = stats_path[1:]
-                
-                # Get stats for this virtual server
-                vs_stats = f5_config.get_json(f"/mgmt/tm/ltm/virtual/{stats_path}/stats")
-                if not vs_stats:
-                    logger.warning(f"Could not get stats for virtual server: {name}")
+                # Try to get stats by fullPath
+                stats = stats_map.get(fullPath, {})
+                if not stats:
+                    # Try by tilde path
+                    tilde_path = '~' + fullPath.strip('/').replace('/', '~')
+                    stats = stats_map.get(tilde_path, {})
+                if not stats:
+                    logger.warning(f"Could not get stats for virtual server: {name} ({fullPath})")
                     continue
-                
-                vs_key = list(vs_stats['entries'].keys())[0]
-                stats = vs_stats['entries'][vs_key]['nestedStats']['entries']
                 
                 vs_info = {
                     'name': name,
@@ -183,14 +193,26 @@ def process_virtual_servers(f5_config):
         return [], {"virtual": Counter(), "pool": Counter(), "node": Counter()}
 
 def process_pools(f5_config, summary_counts):
-    """Fetch and process pool information."""
+    """Fetch and process pool information using only static endpoints and membersReference."""
     try:
         pools = f5_config.get_json('/mgmt/tm/ltm/pool')
-        if not pools:
-            logger.error("Failed to get pool data")
+        pstats = f5_config.get_json('/mgmt/tm/ltm/pool/stats')
+        if not pools or not pstats:
+            logger.error("Failed to get pool data or stats")
             return {}
         
         pool_data = {}
+        # Build a map from fullPath (slash and tilde) to stats
+        stats_map = {}
+        for key, entry in pstats.get('entries', {}).items():
+            parts = key.split('/')
+            if len(parts) > 2:
+                path = parts[-2]  # ~partition~name
+                if path.startswith('~'):
+                    slash_path = '/' + path.replace('~', '/')
+                else:
+                    slash_path = path
+                stats_map[slash_path] = entry['nestedStats']['entries']
         
         for pool in pools.get('items', []):
             try:
@@ -198,19 +220,14 @@ def process_pools(f5_config, summary_counts):
                 name = pool.get('name', '')
                 partition = pool.get('partition', '')
                 
-                # Handle path for stats query
-                stats_path = fullPath.replace('/', '~')
-                if stats_path.startswith('~'):
-                    stats_path = stats_path[1:]
-                
-                # Get stats for this pool
-                pool_stats = f5_config.get_json(f"/mgmt/tm/ltm/pool/{stats_path}/stats")
-                if not pool_stats:
-                    logger.warning(f"Could not get stats for pool: {name}")
+                # Try to get stats by fullPath
+                stats = stats_map.get(fullPath, {})
+                if not stats:
+                    tilde_path = '~' + fullPath.strip('/').replace('/', '~')
+                    stats = stats_map.get(tilde_path, {})
+                if not stats:
+                    logger.warning(f"Could not get stats for pool: {name} ({fullPath})")
                     continue
-                
-                pool_key = list(pool_stats['entries'].keys())[0]
-                stats = pool_stats['entries'][pool_key]['nestedStats']['entries']
                 
                 availability_state = stats.get('status.availabilityState', {}).get('description', 'N/A')
                 summary_counts["pool"][availability_state] += 1
@@ -227,15 +244,19 @@ def process_pools(f5_config, summary_counts):
                     'members': []
                 }
                 
-                # Fetch pool members
-                members_data = f5_config.get_json(f"/mgmt/tm/ltm/pool/{stats_path}/members")
-                if members_data:
-                    for member in members_data.get('items', []):
-                        pool_data[fullPath]['members'].append({
-                            'name': member.get('name', ''),
-                            'address': member.get('address', ''),
-                            'port': member.get('port', '')
-                        })
+                # Use membersReference/link from the pool object
+                members_ref = pool.get('membersReference', {}).get('link')
+                if members_ref:
+                    # Remove query params for version if present
+                    members_ref = members_ref.split('?')[0]
+                    members_data = f5_config.get_json(members_ref.replace('https://localhost', ''))
+                    if members_data and 'items' in members_data:
+                        for member in members_data['items']:
+                            pool_data[fullPath]['members'].append({
+                                'name': member.get('name', ''),
+                                'address': member.get('address', ''),
+                                'port': member.get('port', '')
+                            })
                 
             except Exception as e:
                 logger.error(f"Error processing pool {name}: {str(e)}")
