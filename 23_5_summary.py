@@ -336,7 +336,7 @@ def process_nodes(f5_config, summary_counts):
         logger.error(f"Error in process_nodes: {str(e)}")
         return {}
 
-def generate_excel_report(report_data, summary_counts, output_prefix):
+def generate_excel_report(report_data, summary_counts, output_prefix, pool_data):
     """Generate Excel report with summary and details."""
     try:
         # Create initial workbook
@@ -615,7 +615,7 @@ def main():
         output_prefix = f"{f5_hostname}_{timestamp}_f5_report"
         
         # Generate Excel report
-        excel_filename = generate_excel_report(report_data, summary_counts, output_prefix)
+        excel_filename = generate_excel_report(report_data, summary_counts, output_prefix, pool_data)
         logger.info(f"Report generated in: {os.path.abspath(os.path.dirname(excel_filename))}")
         
         # Print summary
