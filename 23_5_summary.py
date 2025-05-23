@@ -277,23 +277,12 @@ def process_pools(f5_config, summary_counts):
                     members_data = f5_config.get_json(members_ref)
                     if members_data and 'items' in members_data:
                         for member in members_data['items']:
-                            # Get member stats
-                            member_stats = f5_config.get_json(f"/mgmt/tm/ltm/pool/{name}/members/{member.get('name', '')}/stats")
-                            member_state = 'unknown'
-                            member_session = 'unknown'
-                            if member_stats and 'entries' in member_stats:
-                                for stat_entry in member_stats['entries'].values():
-                                    nested_stats = stat_entry.get('nestedStats', {}).get('entries', {})
-                                    member_state = nested_stats.get('status.availabilityState', {}).get('description', 'unknown')
-                                    member_session = nested_stats.get('status.enabledState', {}).get('description', 'unknown')
-                                    break
-                            
                             pool_data[fullPath]['members'].append({
                                 'name': member.get('name', ''),
                                 'address': member.get('address', ''),
                                 'port': member.get('port', ''),
-                                'state': member_state,
-                                'session': member_session
+                                'state': member.get('state', ''),
+                                'session': member.get('session', '')
                             })
             except Exception as e:
                 logger.error(f"Error processing pool {name}: {str(e)}")
