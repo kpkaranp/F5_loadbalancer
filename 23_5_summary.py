@@ -339,33 +339,6 @@ def process_nodes(f5_config, summary_counts):
 def generate_excel_report(report_data, summary_counts, output_prefix, pool_data):
     """Generate Excel report with summary and details."""
     try:
-        # Create initial workbook
-        wb = Workbook()
-        
-        # Create List sheet first (it will be second after we create Summary)
-        list_sheet = wb.active
-        list_sheet.title = "List"
-        
-        # Create Summary sheet and make it active
-        summary_sheet = wb.create_sheet("Summary", 0)  # 0 index makes it the first sheet
-        
-        # Define color fills
-        green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-        yellow_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
-        red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-        blue_fill = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="solid")
-        
-        # Add F5 hostname as heading
-        f5_hostname = output_prefix.split('_')[0]  # Extract hostname from output_prefix
-        summary_sheet['A1'] = f5_hostname
-        summary_sheet.merge_cells('A1:F1')  # Merge cells from A1 to F1
-        
-        # Format the heading
-        heading_cell = summary_sheet['A1']
-        heading_cell.fill = green_fill
-        heading_cell.font = Font(color="FFFFFF", bold=True, size=14)  # White color, bold, size 14
-        heading_cell.alignment = Alignment(horizontal='center', vertical='center')
-        
         # Create summary data for DataFrame
         summary_data = []
         for k, counts in summary_counts.items():
@@ -393,6 +366,23 @@ def generate_excel_report(report_data, summary_counts, output_prefix, pool_data)
             book = writer.book
             ws = book['Summary']
             
+            # Define color fills
+            green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+            yellow_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+            red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+            blue_fill = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="solid")
+            
+            # Add F5 hostname as heading
+            f5_hostname = output_prefix.split('_')[0]  # Extract hostname from output_prefix
+            ws['A1'] = f5_hostname
+            ws.merge_cells('A1:F1')  # Merge cells from A1 to F1
+            
+            # Format the heading
+            heading_cell = ws['A1']
+            heading_cell.fill = green_fill
+            heading_cell.font = Font(color="FFFFFF", bold=True, size=14)  # White color, bold, size 14
+            heading_cell.alignment = Alignment(horizontal='center', vertical='center')
+            
             # Apply colors to the summary sheet
             for row in range(3, len(summary_data) + 3):  # Start from row 3 (after heading and headers)
                 for col in range(1, 7):  # Columns A through F
@@ -410,6 +400,9 @@ def generate_excel_report(report_data, summary_counts, output_prefix, pool_data)
                     elif col == 6:  # Total column
                         cell.fill = blue_fill
             
+            # Create List sheet
+            list_sheet = book.create_sheet("List")
+            
             # Add list headers with hierarchical structure
             headers = [
                 # Virtual Server Information
@@ -420,28 +413,19 @@ def generate_excel_report(report_data, summary_counts, output_prefix, pool_data)
                 "Pool Active Members", "Pool Total Members",
                 # Member Information
                 "Member Name", "Member Address", "Member Port",
-                "Member State", "Member Session",
-                # Node Information
-                "Node IP", "Node Status", "Node Status Reason"
+                "Member State", "Member Session"
             ]
-            list_sheet = book['List']
             list_sheet.append(headers)
             
             # Add list data with hierarchical structure
             for data in report_data:
                 pool_info = data.get('pool', '')
-                node_names = data.get('node_names', '').split('; ')
-                node_addresses = data.get('node_addresses', '').split('; ')
-                node_availability_states = data.get('node_availability_states', '').split('; ')
-                node_status_reasons = data.get('node_status_reasons', '').split('; ')
-                
-                # Get pool members from the pool data
                 pool_members = []
                 if pool_info in pool_data:
                     pool_members = pool_data[pool_info].get('members', [])
                 
-                # If there are no nodes or pool members, add one row with blank values
-                if node_names == [''] and not pool_members:
+                # If there are no pool members, add one row with blank values
+                if not pool_members:
                     row = [
                         # Virtual Server Information
                         data['name'],
@@ -461,16 +445,17 @@ def generate_excel_report(report_data, summary_counts, output_prefix, pool_data)
                         '',  # Member Address
                         '',  # Member Port
                         '',  # Member State
-                        '',  # Member Session
-                        # Node Information
-                        '',  # Node IP
-                        '',  # Node Status
-                        ''   # Node Status Reason
+                        ''   # Member Session
                     ]
                     list_sheet.append(row)
                 else:
                     # Add a row for each pool member
                     for member in pool_members:
+                        member_address = member.get('address', '')
+                        # Remove route domain if present
+                        if '%' in member_address:
+                            member_address = member_address.split('%')[0]
+                        
                         row = [
                             # Virtual Server Information
                             data['name'],
@@ -487,14 +472,10 @@ def generate_excel_report(report_data, summary_counts, output_prefix, pool_data)
                             data.get('total_members', ''),
                             # Member Information
                             member.get('name', ''),
-                            member.get('address', ''),
+                            member_address,  # Cleaned member address
                             member.get('port', ''),
                             member.get('state', ''),
-                            member.get('session', ''),
-                            # Node Information
-                            member.get('address', ''),  # Node IP is same as member address
-                            node_availability_states[0] if node_availability_states else '',
-                            node_status_reasons[0] if node_status_reasons else ''
+                            member.get('session', '')
                         ]
                         list_sheet.append(row)
             
