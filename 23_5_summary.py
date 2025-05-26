@@ -85,7 +85,7 @@ class F5Config:
             output_prefix = f"{f5_hostname}_{timestamp}_f5_report"
             
             # Generate Excel report
-            excel_filename = generate_excel_report(report_data, summary_counts, output_prefix)
+            excel_filename = generate_excel_report(report_data, summary_counts, output_prefix, pool_data)
             logger.info(f"Report generated in: {os.path.abspath(os.path.dirname(excel_filename))}")
             
             # Print summary
@@ -381,98 +381,67 @@ def generate_excel_report(report_data, summary_counts, output_prefix, pool_data)
         # Create DataFrame
         summary_df = pd.DataFrame(summary_data)
         
-        # Save initial workbook
+        # Generate output filename
         excel_filename = f"{output_prefix}.xlsx"
-        wb.save(excel_filename)
         
-        # Write DataFrame to Excel
-        with pd.ExcelWriter(excel_filename, engine='openpyxl', mode='a') as writer:
-            writer.book = load_workbook(excel_filename)
+        # Write DataFrame to Excel using ExcelWriter
+        with pd.ExcelWriter(excel_filename, engine='openpyxl') as writer:
+            # Write summary data
             summary_df.to_excel(writer, sheet_name='Summary', startrow=1, startcol=0, index=False)
-            writer.save()
-        
-        # Apply colors to the summary sheet
-        book = load_workbook(excel_filename)
-        ws = book['Summary']
-        
-        # Apply colors to each row in the summary
-        for row in range(3, len(summary_data) + 3):  # Start from row 3 (after heading and headers)
-            for col in range(1, 7):  # Columns A through F
-                cell = ws.cell(row=row, column=col)
-                if col == 1:  # Type column
-                    cell.fill = blue_fill
-                elif col == 2:  # Available column
-                    cell.fill = green_fill
-                elif col == 3:  # Offline column
-                    cell.fill = red_fill
-                elif col == 4:  # Online column
-                    cell.fill = green_fill
-                elif col == 5:  # Unknown column
-                    cell.fill = yellow_fill
-                elif col == 6:  # Total column
-                    cell.fill = blue_fill
-        
-        # Add list headers with hierarchical structure
-        headers = [
-            # Virtual Server Information
-            "Virtual Server", "VS Description", "VS Destination", "VS Service Port",
-            "VS Status", "VS Status Reason",
-            # Pool Information
-            "Pool Name", "Pool Status", "Pool Status Reason",
-            "Pool Active Members", "Pool Total Members",
-            # Member Information
-            "Member Name", "Member Address", "Member Port",
-            "Member State", "Member Session",
-            # Node Information
-            "Node IP", "Node Status", "Node Status Reason"
-        ]
-        list_sheet = book['List']
-        list_sheet.append(headers)
-        
-        # Add list data with hierarchical structure
-        for data in report_data:
-            pool_info = data.get('pool', '')
-            node_names = data.get('node_names', '').split('; ')
-            node_addresses = data.get('node_addresses', '').split('; ')
-            node_availability_states = data.get('node_availability_states', '').split('; ')
-            node_status_reasons = data.get('node_status_reasons', '').split('; ')
             
-            # Get pool members from the pool data
-            pool_members = []
-            if pool_info in pool_data:
-                pool_members = pool_data[pool_info].get('members', [])
+            # Get the workbook and worksheet
+            book = writer.book
+            ws = book['Summary']
             
-            # If there are no nodes or pool members, add one row with blank values
-            if node_names == [''] and not pool_members:
-                row = [
-                    # Virtual Server Information
-                    data['name'],
-                    data['description'],
-                    f"{data['destination_ip']}:{data['destination_port']}" if data['destination_ip'] else '',
-                    data['destination_port'],
-                    data['vs_availabilityState'],
-                    data['vs_statusReason'],
-                    # Pool Information
-                    data['pool_name'],
-                    data['pool_availabilityState'],
-                    data['pool_statusReason'],
-                    data.get('active_members', ''),
-                    data.get('total_members', ''),
-                    # Member Information
-                    '',  # Member Name
-                    '',  # Member Address
-                    '',  # Member Port
-                    '',  # Member State
-                    '',  # Member Session
-                    # Node Information
-                    '',  # Node IP
-                    '',  # Node Status
-                    ''   # Node Status Reason
-                ]
-                list_sheet.append(row)
-            else:
-                # Add a row for each pool member
-                for member in pool_members:
+            # Apply colors to the summary sheet
+            for row in range(3, len(summary_data) + 3):  # Start from row 3 (after heading and headers)
+                for col in range(1, 7):  # Columns A through F
+                    cell = ws.cell(row=row, column=col)
+                    if col == 1:  # Type column
+                        cell.fill = blue_fill
+                    elif col == 2:  # Available column
+                        cell.fill = green_fill
+                    elif col == 3:  # Offline column
+                        cell.fill = red_fill
+                    elif col == 4:  # Online column
+                        cell.fill = green_fill
+                    elif col == 5:  # Unknown column
+                        cell.fill = yellow_fill
+                    elif col == 6:  # Total column
+                        cell.fill = blue_fill
+            
+            # Add list headers with hierarchical structure
+            headers = [
+                # Virtual Server Information
+                "Virtual Server", "VS Description", "VS Destination", "VS Service Port",
+                "VS Status", "VS Status Reason",
+                # Pool Information
+                "Pool Name", "Pool Status", "Pool Status Reason",
+                "Pool Active Members", "Pool Total Members",
+                # Member Information
+                "Member Name", "Member Address", "Member Port",
+                "Member State", "Member Session",
+                # Node Information
+                "Node IP", "Node Status", "Node Status Reason"
+            ]
+            list_sheet = book['List']
+            list_sheet.append(headers)
+            
+            # Add list data with hierarchical structure
+            for data in report_data:
+                pool_info = data.get('pool', '')
+                node_names = data.get('node_names', '').split('; ')
+                node_addresses = data.get('node_addresses', '').split('; ')
+                node_availability_states = data.get('node_availability_states', '').split('; ')
+                node_status_reasons = data.get('node_status_reasons', '').split('; ')
+                
+                # Get pool members from the pool data
+                pool_members = []
+                if pool_info in pool_data:
+                    pool_members = pool_data[pool_info].get('members', [])
+                
+                # If there are no nodes or pool members, add one row with blank values
+                if node_names == [''] and not pool_members:
                     row = [
                         # Virtual Server Information
                         data['name'],
@@ -488,20 +457,50 @@ def generate_excel_report(report_data, summary_counts, output_prefix, pool_data)
                         data.get('active_members', ''),
                         data.get('total_members', ''),
                         # Member Information
-                        member.get('name', ''),
-                        member.get('address', ''),
-                        member.get('port', ''),
-                        member.get('state', ''),
-                        member.get('session', ''),
+                        '',  # Member Name
+                        '',  # Member Address
+                        '',  # Member Port
+                        '',  # Member State
+                        '',  # Member Session
                         # Node Information
-                        member.get('address', ''),  # Node IP is same as member address
-                        node_availability_states[0] if node_availability_states else '',
-                        node_status_reasons[0] if node_status_reasons else ''
+                        '',  # Node IP
+                        '',  # Node Status
+                        ''   # Node Status Reason
                     ]
                     list_sheet.append(row)
+                else:
+                    # Add a row for each pool member
+                    for member in pool_members:
+                        row = [
+                            # Virtual Server Information
+                            data['name'],
+                            data['description'],
+                            f"{data['destination_ip']}:{data['destination_port']}" if data['destination_ip'] else '',
+                            data['destination_port'],
+                            data['vs_availabilityState'],
+                            data['vs_statusReason'],
+                            # Pool Information
+                            data['pool_name'],
+                            data['pool_availabilityState'],
+                            data['pool_statusReason'],
+                            data.get('active_members', ''),
+                            data.get('total_members', ''),
+                            # Member Information
+                            member.get('name', ''),
+                            member.get('address', ''),
+                            member.get('port', ''),
+                            member.get('state', ''),
+                            member.get('session', ''),
+                            # Node Information
+                            member.get('address', ''),  # Node IP is same as member address
+                            node_availability_states[0] if node_availability_states else '',
+                            node_status_reasons[0] if node_status_reasons else ''
+                        ]
+                        list_sheet.append(row)
+            
+            # Save the workbook
+            writer.save()
         
-        # Save the final workbook
-        book.save(excel_filename)
         logger.info(f"Excel report generated: {excel_filename}")
         return excel_filename
         
@@ -567,11 +566,6 @@ def generate_report(vs_data, pool_data, node_data):
             'pool_statusReason': pool_info.get('statusReason', ''),
             
             # Node information
-            'node_names': '; '.join(node_names) if node_names else '',
-            'node_addresses': '; '.join(node_addresses) if node_addresses else '',
-            'node_availability_states': '; '.join(node_availability_states) if node_availability_states else '',
-            'node_enabled_states': '; '.join(node_enabled_states) if node_enabled_states else '',
-            'node_status_reasons': '; '.join(node_status_reasons) if node_status_reasons else '',
             
             # Member information
             'member_states': '; '.join(member_states) if member_states else '',
