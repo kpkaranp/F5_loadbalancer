@@ -411,9 +411,10 @@ def generate_excel_report(report_data, summary_counts, output_prefix, pool_data)
                 "Pool Name", "Pool Status", "Pool Status Reason",
                 "Pool Active Members", "Pool Total Members",
                 # Member Information
-                "Member Name", "Member State", "Member Session",
+                "Member Name", "Member Address", "Member State",
                 # Additional Information
-                "CoreIT", "POD", "Cloud"
+                "CoreIT", "POD", "Cloud",
+                "Member Session"
             ]
             list_sheet.append(headers)
             
@@ -442,12 +443,13 @@ def generate_excel_report(report_data, summary_counts, output_prefix, pool_data)
                         data.get('total_members', ''),
                         # Member Information
                         '',  # Member Name
+                        '',  # Member Address
                         '',  # Member State
-                        '',  # Member Session
                         # Additional Information
                         '',  # CoreIT
                         '',  # POD
-                        ''   # Cloud
+                        '',  # Cloud
+                        '',  # Member Session
                     ]
                     list_sheet.append(row)
                 else:
@@ -469,12 +471,13 @@ def generate_excel_report(report_data, summary_counts, output_prefix, pool_data)
                             data.get('total_members', ''),
                             # Member Information
                             member.get('name', ''),
+                            member.get('address', ''),
                             member.get('state', ''),
-                            member.get('session', ''),
                             # Additional Information
                             '',  # CoreIT
                             '',  # POD
-                            ''   # Cloud
+                            '',  # Cloud
+                            member.get('session', '')
                         ]
                         list_sheet.append(row)
             
