@@ -29,6 +29,7 @@ import pandas as pd
 import argparse
 import logging
 import sys
+from openpyxl.utils import get_column_letter
 
 # Suppress insecure HTTPS warnings
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
@@ -482,17 +483,18 @@ def generate_excel_report(report_data, summary_counts, output_prefix, pool_data)
             
             # Auto-adjust column widths
             for sheet in book.worksheets:
-                for column in sheet.columns:
+                for i, column in enumerate(sheet.columns, 1):
                     max_length = 0
-                    column_letter = column[0].column_letter
                     for cell in column:
-                        try:
-                            if len(str(cell.value)) > max_length:
-                                max_length = len(str(cell.value))
-                        except:
-                            pass
+                        if cell.value:
+                            try:
+                                if len(str(cell.value)) > max_length:
+                                    max_length = len(str(cell.value))
+                            except Exception:
+                                pass
                     adjusted_width = (max_length + 2)
-                    sheet.column_dimensions[column_letter].width = adjusted_width
+                    col_letter = get_column_letter(i)
+                    sheet.column_dimensions[col_letter].width = adjusted_width
         
         logger.info(f"Excel report generated: {excel_filename}")
         return excel_filename
