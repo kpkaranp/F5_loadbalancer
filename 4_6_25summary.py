@@ -8,9 +8,6 @@ from urllib3.exceptions import InsecureRequestWarning
 import warnings
 import base64
 from datetime import datetime
-import csv
-from bigip_rest_client import BigipRestClient
-from bigip_rest_client.exceptions import BigipRestClientException
 
 # Suppress only the single warning from urllib3 needed.
 warnings.filterwarnings('ignore', category=InsecureRequestWarning)
@@ -19,158 +16,146 @@ def get_credentials():
     """
     Get F5 credentials from environment variables (GitHub secrets).
     """
-    username = os.getenv('F5_USERNAME')
-    password = os.getenv('F5_PASSWORD')
+    username = os.getenv('API_USERNAME')
+    password = os.getenv('API_PASSWORD')
     
     if not username or not password:
-        print("Error: F5_USERNAME and F5_PASSWORD environment variables must be set")
+        print("Error: API_USERNAME and API_PASSWORD environment variables must be set")
         print("Please ensure these GitHub secrets are properly configured")
         sys.exit(1)
     
     return username, password
 
-def load_inventory():
-    """Load inventory data from JSON file"""
+def load_inventory(inventory_file):
+    """
+    Load device inventory from JSON file.
+    """
     try:
-        with open('inventory.json', 'r') as f:
-            return json.load(f)
+        with open(inventory_file, 'r') as f:
+            inventory = json.load(f)
+            # The inventory is already an array of device objects
+            return inventory
     except FileNotFoundError:
-        print("Error: inventory.json file not found")
-        return None
+        print(f"Error: Inventory file {inventory_file} not found")
+        sys.exit(1)
     except json.JSONDecodeError:
-        print("Error: inventory.json is not valid JSON")
+        print(f"Error: Invalid JSON in {inventory_file}")
+        sys.exit(1)
+
+def get_auth_token(address, username, password):
+    """
+    Get authentication token from F5 device using username and password.
+    """
+    auth_url = f"https://{address}/mgmt/shared/authn/login"
+    auth_data = {
+        "username": username,
+        "password": password,
+        "loginProviderName": "tmos"
+    }
+    headers = {'Content-Type': 'application/json'}
+    
+    try:
+        response = requests.post(auth_url, json=auth_data, headers=headers, verify=False)
+        response.raise_for_status()
+        return response.json()['token']['token']
+    except requests.exceptions.RequestException as e:
+        print(f"Authentication failed for {address}: {e}")
         return None
 
-def get_f5_status_summary(device_info):
-    """Get status summary for a single F5 device"""
+def fetch_f5_summary(address):
+    """
+    Fetches F5 summary stats using credentials from environment variables.
+    """
+    def get_stats(url, token):
+        headers = {'X-F5-Auth-Token': token, 'Content-Type': 'application/json'}
+        r = requests.get(url, headers=headers, verify=False)
+        r.raise_for_status()
+        return r.json()
+
+    def parse_stats_entries(stats_json):
+        entries = stats_json.get('entries', {})
+        total = len(entries)
+        available = unavailable = offline = unknown = 0
+        available_disabled = offline_disabled = unknown_disabled = 0
+        for entry in entries.values():
+            nested = entry.get('nestedStats', {}).get('entries', {})
+            status = nested.get('status.availabilityState', {}).get('description', '').lower()
+            enabled = nested.get('status.enabledState', {}).get('description', '').lower()
+            disabled = enabled == 'disabled'
+            if status == 'available':
+                available += 1
+                if disabled:
+                    available_disabled += 1
+            elif status == 'unavailable':
+                unavailable += 1
+            elif status == 'offline':
+                offline += 1
+                if disabled:
+                    offline_disabled += 1
+            elif status == 'unknown':
+                unknown += 1
+                if disabled:
+                    unknown_disabled += 1
+        return total, available, available_disabled, unavailable, offline, offline_disabled, unknown, unknown_disabled
+
     try:
-        # Initialize BigIP client
-        client = BigipRestClient(
-            hostname=device_info['hostname'],
-            username=device_info['username'],
-            password=device_info['password'],
-            verify=False  # Disable SSL verification for testing
-        )
+        # Get credentials from environment variables
+        username, password = get_credentials()
+        
+        # Get authentication token
+        token = get_auth_token(address, username, password)
+        if not token:
+            return None
+        
+        # Virtual Servers
+        vs_url = f"https://{address}/mgmt/tm/ltm/virtual/stats"
+        vs_stats_json = get_stats(vs_url, token)
+        vs_total, vs_avail, vs_avail_dis, vs_unavail, vs_off, vs_off_dis, vs_unk, vs_unk_dis = parse_stats_entries(vs_stats_json)
 
-        # Get virtual servers
-        vs_list = client.get('/mgmt/tm/ltm/virtual')
-        vs_data = []
-        for vs in vs_list.get('items', []):
-            vs_data.append({
-                'name': vs.get('name', ''),
-                'status': vs.get('enabled', False),
-                'destination': vs.get('destination', ''),
-                'pool': vs.get('pool', '')
-            })
+        # Pools
+        pool_url = f"https://{address}/mgmt/tm/ltm/pool/stats"
+        pool_stats_json = get_stats(pool_url, token)
+        pool_total, pool_avail, pool_avail_dis, pool_unavail, pool_off, pool_off_dis, pool_unk, pool_unk_dis = parse_stats_entries(pool_stats_json)
 
-        # Get pools
-        pool_list = client.get('/mgmt/tm/ltm/pool')
-        pool_data = []
-        for pool in pool_list.get('items', []):
-            pool_data.append({
-                'name': pool.get('name', ''),
-                'status': pool.get('monitor', ''),
-                'members': len(pool.get('membersReference', {}).get('items', []))
-            })
+        # Nodes
+        node_url = f"https://{address}/mgmt/tm/ltm/node/stats"
+        node_stats_json = get_stats(node_url, token)
+        node_total, node_avail, node_avail_dis, node_unavail, node_off, node_off_dis, node_unk, node_unk_dis = parse_stats_entries(node_stats_json)
 
-        # Get nodes
-        node_list = client.get('/mgmt/tm/ltm/node')
-        node_data = []
-        for node in node_list.get('items', []):
-            node_data.append({
-                'name': node.get('name', ''),
-                'status': node.get('monitorStatus', ''),
-                'address': node.get('address', '')
-            })
-
-        return {
-            'virtual_servers': vs_data,
-            'pools': pool_data,
-            'nodes': node_data
-        }
-
-    except BigipRestClientException as e:
-        print(f"Error connecting to {device_info['hostname']}: {str(e)}")
+        # Build summary DataFrame
+        summary_df = pd.DataFrame([
+            {
+                "Object Type": "Virtual Servers",
+                "Total": vs_total,
+                "Available": f"{vs_avail} ({vs_avail_dis} Disabled)",
+                "Unavailable": vs_unavail,
+                "Offline": f"{vs_off} ({vs_off_dis} Disabled)",
+                "Unknown": f"{vs_unk} ({vs_unk_dis} Disabled)"
+            },
+            {
+                "Object Type": "Pools",
+                "Total": pool_total,
+                "Available": f"{pool_avail} ({pool_avail_dis} Disabled)",
+                "Unavailable": pool_unavail,
+                "Offline": f"{pool_off} ({pool_off_dis} Disabled)",
+                "Unknown": f"{pool_unk} ({pool_unk_dis} Disabled)"
+            },
+            {
+                "Object Type": "Nodes",
+                "Total": node_total,
+                "Available": f"{node_avail} ({node_avail_dis} Disabled)",
+                "Unavailable": node_unavail,
+                "Offline": f"{node_off} ({node_off_dis} Disabled)",
+                "Unknown": f"{node_unk} ({node_unk_dis} Disabled)"
+            }
+        ])
+        return summary_df
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching data from F5 device {address}: {e}")
         return None
     except Exception as e:
-        print(f"Unexpected error for {device_info['hostname']}: {str(e)}")
+        print(f"Unexpected error for device {address}: {e}")
         return None
-
-def generate_summary_sheet():
-    """Generate summary sheet for all F5 devices"""
-    # Load inventory data
-    inventory = load_inventory()
-    if not inventory:
-        return
-
-    # Create output directory if it doesn't exist
-    output_dir = 'f5_status_reports'
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Generate timestamp for filename
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_file = os.path.join(output_dir, f'f5_status_summary_{timestamp}.csv')
-
-    # Prepare CSV headers
-    headers = [
-        'Datacenter',
-        'Device Name',
-        'Component Type',
-        'Component Name',
-        'Status',
-        'Additional Info'
-    ]
-
-    # Write data to CSV
-    with open(output_file, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(headers)
-
-        # Process each datacenter
-        for dc_name, dc_data in inventory.items():
-            # Process each device in the datacenter
-            for device_name, device_info in dc_data.items():
-                print(f"Processing {device_name} in {dc_name}...")
-                
-                # Get status summary for the device
-                status_data = get_f5_status_summary(device_info)
-                if not status_data:
-                    continue
-
-                # Write virtual server data
-                for vs in status_data['virtual_servers']:
-                    writer.writerow([
-                        dc_name,
-                        device_name,
-                        'Virtual Server',
-                        vs['name'],
-                        'Enabled' if vs['status'] else 'Disabled',
-                        f"Destination: {vs['destination']}, Pool: {vs['pool']}"
-                    ])
-
-                # Write pool data
-                for pool in status_data['pools']:
-                    writer.writerow([
-                        dc_name,
-                        device_name,
-                        'Pool',
-                        pool['name'],
-                        pool['status'],
-                        f"Members: {pool['members']}"
-                    ])
-
-                # Write node data
-                for node in status_data['nodes']:
-                    writer.writerow([
-                        dc_name,
-                        device_name,
-                        'Node',
-                        node['name'],
-                        node['status'],
-                        f"Address: {node['address']}"
-                    ])
-
-    print(f"\nSummary sheet generated: {output_file}")
 
 def main():
     parser = argparse.ArgumentParser(description='Fetch F5 device status summary and save to CSV')
@@ -181,28 +166,24 @@ def main():
     
     args = parser.parse_args()
     
-    # Load device inventory
-    devices = load_inventory(args.inventory)
+    # Load device inventory using default inventory.json in the same directory
+    devices = load_inventory('inventory.json')
     
     # Process each device
     all_summaries = []
     for device_info in devices:
         dc = device_info.get('dc', 'Unknown')
         device = device_info.get('device')
-        name = device_info.get('name', device)
-        environment = device_info.get('environment', 'Unknown')
         
-        print(f"\nProcessing device: {name} ({device})")
-        print(f"Datacenter: {dc}, Environment: {environment}")
+        print(f"\nProcessing device: {device}")
+        print(f"Datacenter: {dc}")
         
-        summary_df = get_f5_status_summary(device_info)
+        summary_df = fetch_f5_summary(device)
         
         if summary_df is not None:
-            # Add device information columns
+            # Add only dc and device information columns
             summary_df['Datacenter'] = dc
             summary_df['Device'] = device
-            summary_df['Name'] = name
-            summary_df['Environment'] = environment
             
             # Add to combined summary
             all_summaries.append(summary_df)
@@ -211,7 +192,7 @@ def main():
     if all_summaries:
         combined_df = pd.concat(all_summaries, ignore_index=True)
         # Reorder columns to put device information first
-        device_cols = ['Datacenter', 'Environment', 'Device', 'Name']
+        device_cols = ['Datacenter', 'Device']
         other_cols = [col for col in combined_df.columns if col not in device_cols]
         combined_df = combined_df[device_cols + other_cols]
         combined_df.to_csv(args.output, index=False)
@@ -220,4 +201,4 @@ def main():
         print("\nNo successful device summaries were generated")
 
 if __name__ == "__main__":
-    generate_summary_sheet() 
+    main() 
