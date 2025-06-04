@@ -161,10 +161,14 @@ def main():
     parser = argparse.ArgumentParser(description='Fetch F5 device status summary and save to CSV')
     parser.add_argument('--inventory', '-i', default='inventory.json',
                       help='Path to inventory JSON file (default: inventory.json)')
-    parser.add_argument('--output', '-o', default='f5_status_summary.csv',
-                      help='Output CSV file path (default: f5_status_summary.csv)')
+    parser.add_argument('--output', '-o', default='f5_status_summary',
+                      help='Output CSV file base name (default: f5_status_summary)')
     
     args = parser.parse_args()
+    
+    # Generate timestamp for filename
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_file = f"{args.output}_{timestamp}.csv"
     
     # Load device inventory using default inventory.json in the same directory
     devices = load_inventory('inventory.json')
@@ -195,8 +199,8 @@ def main():
         device_cols = ['Datacenter', 'Device']
         other_cols = [col for col in combined_df.columns if col not in device_cols and col != 'Total']
         combined_df = combined_df[device_cols + other_cols + ['Total']]
-        combined_df.to_csv(args.output, index=False, sep=';')
-        print(f"\nSummary saved to {args.output}")
+        combined_df.to_csv(output_file, index=False, sep=';')
+        print(f"\nSummary saved to {output_file}")
     else:
         print("\nNo successful device summaries were generated")
 
