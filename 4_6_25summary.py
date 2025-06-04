@@ -191,11 +191,11 @@ def main():
     # Save combined summary if we have any successful results
     if all_summaries:
         combined_df = pd.concat(all_summaries, ignore_index=True)
-        # Reorder columns to put device information first
+        # Reorder columns to put device information first and Total last
         device_cols = ['Datacenter', 'Device']
-        other_cols = [col for col in combined_df.columns if col not in device_cols]
-        combined_df = combined_df[device_cols + other_cols]
-        combined_df.to_csv(args.output, index=False)
+        other_cols = [col for col in combined_df.columns if col not in device_cols and col != 'Total']
+        combined_df = combined_df[device_cols + other_cols + ['Total']]
+        combined_df.to_csv(args.output, index=False, sep=';')
         print(f"\nSummary saved to {args.output}")
     else:
         print("\nNo successful device summaries were generated")
