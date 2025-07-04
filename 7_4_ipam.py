@@ -1,20 +1,28 @@
 import os
-import json
-import sys
-import logging
-import ipam 
+from SOLIDserverRest import adv as sdsadv
 
+# === Configuration ===
+SDS_HOST = os.environ['SDS_HOST_DEV']
+SDS_LOGIN = os.environ['SDS_LOGIN_DEV']
+SDS_PWD = os.environ['SDS_PWD_DEV']
 
-SDS_HOST_DEV = os.environ['SDS_HOST_DEV']
-SDS_LOGIN_DEV = os.environ['SDS_LOGIN_DEV']
-SDS_PWD_DEV = os.environ['SDS_PWD_DEV']
-TARGET_IP = "100.302.1.25"  # Replace with the IP you want to look up
+TARGET_IP = "100.30.1.25"  # Make sure it's a valid IPv4 address
 
- 
-eip = ipam.Ipam(SDS_HOST_DEV, SDS_LOGIN_DEV, SDS_PWD_DEV)
+# === Connect to SOLIDserver ===
+sds = sdsadv.SDS(ip_address=SDS_HOST, user=SDS_LOGIN, pwd=SDS_PWD)
 
 try:
-    ip_detail = eip.get_ip_details(TARGET_IP)  # Replace with your actual method if different
+    sds.connect()
+    print("Connected to SOLIDserver.")
+except Exception as e:
+    print(f"Connection failed: {e}")
+    exit(1)
+
+# === Get info for a specific IP ===
+try:
+    ip_detail = sds.ip_address_info({
+        "ip_addr": TARGET_IP
+    })
 
     if ip_detail:
         print(f"\nDetails for IP {TARGET_IP}:\n")
@@ -27,7 +35,7 @@ try:
         print(f"Site Name  : {ip_detail.get('site_name')}")
         print("-" * 40)
     else:
-        print(f"No details found for IP address: {TARGET_IP}")
+        print(f"No details found for IP: {TARGET_IP}")
 
 except Exception as e:
-    print(f"Failed to retrieve IP address info: {e}")
+    print(f" Failed to get IP info: {e}")
